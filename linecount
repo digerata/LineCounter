@@ -1,0 +1,137 @@
+#!/usr/bin/perl
+
+package main;
+
+my @params;
+
+while(my $param = shift) {
+	push(@params, $param);
+}
+
+if(@params < 1) {
+	PrintHelp();
+	exit;
+}
+
+my $SearchPath = "/";
+my $Recurse = "false";
+my $FileTypes = "java|js|pl|cpp|h|c|jsp";
+my $FileCount = 0;
+
+for(my $counter = 0; $counter < @params; $counter++) {
+	if($params[$counter] eq "--help" || $params[$counter] eq "-h") {
+		PrintHelp();		
+		exit;
+	} elsif($params[$counter] =~ /^\-{1,2}path=(.*)$/) {
+		$SearchPath = $1;
+		if($SearchPath != /^(.*?)\/$/) {
+			$SearchPath .= "/";
+		}
+	} elsif($params[$counter] eq /^\-{1,2}recurse$/ || $params[$counter] eq "-r") {
+		$Recurse = "true";
+
+	} elsif($params[$counter] =~ /^\-{1,2}types=(.*)$/) {
+		$FileTypes = $1;
+		$FileTypes =~ s/\,/\|/g;
+	}
+}
+
+print "Recursing ($Recurse)\n";
+print "Search Path: $SearchPath\n";
+print "File Types: $FileTypes\n";
+$TotalCount = TraverseDir($SearchPath);
+print "\nThere were a total of $TotalCount lines found in $FileCount files under $SearchPath\n";
+
+sub TraverseDir {
+	my $dir = shift;
+	my $Total = 0;
+	if($Recurse eq "false") {
+		# if not recursing, we can just do a double grep and forget about directories...
+		opendir(DIR, $dir);
+		# First grep out . and .., then grep for FileTypes
+		my(@files) = grep(/^(.*?)\.($FileTypes)$/, grep(!/^\.\.?$/, readdir (DIR))); 
+		closedir(DIR);
+		foreach my $file (@files) {
+			$FileCount++;
+			print "Found file: $file, checking...";
+			my $fileTotal = CountFile($dir.$file);
+			$Total += $fileTotal;
+			print "$fileTotal\n";
+		}
+		return $Total;
+	} else {
+		opendir(DIR, $dir);
+		# First grep out . and .., then grep for FileTypes
+		my(@files) = grep(!/^\.\.?$/, readdir (DIR)); 
+		closedir(DIR);
+		foreach my $file (@files) {
+			if(-d $dir.$file) {
+				$Total += TraverseDir($dir.$file."/");
+			} elsif($file =~ /^(.*?)\.($FileTypes)$/) {
+				$FileCount++;
+				print "Found file: $file, checking...";
+				my $fileTotal = CountFile($dir.$file);
+				$Total += $fileTotal;
+				print "$fileTotal\n";
+			}
+		}
+		return $Total;
+	}
+}
+
+sub CountFile {
+	my $count = 0;
+	my $file = shift;
+	open(IN, $file) or die("Unable to open $file! Reason: $!");
+	while(<IN>) {
+		if($_ =~ /(\S){2,}/) {
+			$count++;
+		}
+	}
+	close(IN);
+
+	return $count;
+}
+
+######
+# Utility functions below...
+sub FatalError {
+	my $message = shift;
+	print "Fatal Error: $message\n";
+	Error("$message");
+	exit;
+}
+
+sub Warn {
+	my $message = shift;
+	print "Error: $message\n";
+	Error("$message");
+}
+
+sub Log {
+	my $text = shift;
+	my $TimeStamp = localtime(time);
+	open(LOG, ">>$LogFile") or print STDERR "Unable to open log: $LogFile!  Reason: $!\n";
+	print LOG "[$TimeStamp] [info] $text\n";
+	close(LOG);
+}
+
+sub Error {
+	my $text = shift;
+	my $TimeStamp = localtime(time);
+	open(LOG, ">>$LogFile") or print STDERR "Unable to open log: $LogFile!  Reason: $!\n";
+	print LOG "[$TimeStamp] [error] $text\n";
+	close(LOG);
+}
+
+sub PrintHelp {
+	print "\nUsage: linecount [--path=/path/to/search] [--recurse] [--types=java,cpp,pl,etc.]\n";
+	print "Seaches the path listed, recursing directories if needed, for the specified files types.\n";
+	print "Each file found will be opened and the number of lines that have at least 2 characters\n";
+	print "are counted and accumulated for a final total.\n\n";
+	print "--path \t\tThe directory to search for files.\n";
+	print "--recurse,-r\tIf specified, linecount will traverse into subdirectories looking for files.\n";
+	print "--types\t\tA ',' or ',' separated list of file extensions to search for. (Do not include the '.')\n";
+	print "\t\t\t\tDefaults to: java|js|pl|cpp|h|c\n";
+	print "--help \t\t\tPrints this message.\n\n";
+}
